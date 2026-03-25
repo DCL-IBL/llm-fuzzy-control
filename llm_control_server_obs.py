@@ -20,21 +20,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    #curl "http://127.0.0.1:8000/test?ID=1&G=5&BW=80"
+    #curl "http://127.0.0.1:8000/test?ID=1&G=5&BW=8&t=0"
     def do_GET(self):
         url = urlparse(self.path)
         query = parse_qs(url.query)  # dict: key -> [values]
-        if 'G' in query.keys() and 'BW' in query.keys() and 'ID' in query.keys():
+        if 'G' in query.keys() and 'BW' in query.keys() and 'ID' in query.keys() and 't' in query.keys():
             global data1
             #pdb.set_trace()
             id = query['ID'][0]
             data1.BW = float(query['BW'][0])
+            time = float(query['t'][0])
             if id not in data1.state.keys():
                 data1.state[id] = torch.tensor([50,50,0,0,0,0,0,0]).cuda().repeat(Controller.batch_size,1)
                 data1.yt[id] = (data1.state[id][:,0]/(0.16*data1.BW)).unsqueeze(1).repeat(1,Controller.sequence_len*data1.input_toks_per_term)
                 data1.ut[id] = torch.zeros((Controller.batch_size,Controller.sequence_len*data1.output_toks_per_term)).cuda()
+                data1.t[id] = 0.0
+                data1.u_prev[id] = 0.0
             data1.state[id][:,0] = float(query['G'][0])*(0.16*data1.BW)
-            u_per_kg = data1.get_control(id)
+            u_per_kg = data1.get_control(time,id)
             self._send_json({"u_new_kg": u_per_kg.item()})
 
     def do_POST(self):
@@ -155,6 +158,8 @@ class Controller():
         self.llm.train()
 
         self.BW=100
+        self.t={}
+        self.u_prev = {}
         self.state = {} #torch.tensor([50,50,0,0,0,0,0,0]).cuda().repeat(Controller.batch_size,1)
         self.yt = {} #(self.state[:,0]/(0.16*self.BW)).unsqueeze(1).repeat(1,Controller.sequence_len*self.input_toks_per_term) #torch.zeros((batch_size,sequence_len)).cuda()
         self.ut = {} #torch.zeros((Controller.batch_size,Controller.sequence_len*self.output_toks_per_term)).cuda()
@@ -231,9 +236,11 @@ class Controller():
             Idot.unsqueeze(1)])
         return (dstate,G)
 
-    Ts = 1
+    Ts = 5
 
-    def get_control(self,id):
+    def get_control(self,time,id):
+        if time - self.t[id] < Controller.Ts:
+            return self.u_prev[id]
         self.input_terms_vec0 = self.input_terms_vec0.detach()
         self.output_terms_vec0 = self.output_terms_vec0.detach()
 
@@ -297,6 +304,8 @@ class Controller():
         self.yt[id] = self.yt[id].detach()
         self.ut[id] = self.ut[id].detach()
         self.state[id] = self.state[id].detach()
+        self.t[id] = time
+        self.u_prev[id] = u_per_kg
 
         return u_per_kg
 
