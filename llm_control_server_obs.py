@@ -35,7 +35,7 @@ class Handler(BaseHTTPRequestHandler):
                 data1.yt[id] = (data1.state[id][:,0]/(0.16*data1.BW)).unsqueeze(1).repeat(1,Controller.sequence_len*data1.input_toks_per_term)
                 data1.ut[id] = torch.zeros((Controller.batch_size,Controller.sequence_len*data1.output_toks_per_term)).cuda()
                 data1.t[id] = 0.0
-                data1.u_prev[id] = 0.0
+                data1.u_prev[id] = torch.tensor(0.0)
             data1.state[id][:,0] = float(query['G'][0])*(0.16*data1.BW)
             u_per_kg = data1.get_control(time,id)
             self._send_json({"u_new_kg": u_per_kg.item()})
@@ -239,8 +239,8 @@ class Controller():
     Ts = 5
 
     def get_control(self,time,id):
-        if time - self.t[id] < Controller.Ts:
-            return self.u_prev[id]
+        #if time - self.t[id] < Controller.Ts:
+        #    return self.u_prev[id]
         self.input_terms_vec0 = self.input_terms_vec0.detach()
         self.output_terms_vec0 = self.output_terms_vec0.detach()
 
