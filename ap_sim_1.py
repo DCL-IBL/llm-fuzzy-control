@@ -205,7 +205,7 @@ def ap_model(t,state,uin):
     return (dstate,G)
 
 u_new=0.0*torch.ones((batch_size,)).cuda()
-Ts = 1
+Ts = 5
 '''
 for t in range(0,24*60*3):
     tt = torch.tensor(t*Ts).cuda()
@@ -230,7 +230,7 @@ f.close()
 pdb.set_trace()
 '''
 
-num_training_steps = 24*60*3
+num_training_steps = int(24*60*3/Ts)
 lr_scheduler = get_scheduler(
     "linear",
     optimizer=optimizer,
@@ -308,8 +308,8 @@ for t in range(0,num_training_steps):
 
     loss_ce = torch.nn.CrossEntropyLoss()(output_logits,out_class)
 
-    if loss_ce > 1.0:
-        u_new = u_new/loss_ce
+    #if loss_ce > 1.0:
+    #    u_new = u_new/loss_ce
     #ts = 1.0
     #if t < 2000 and loss_ce > 1.0:
     #    u_new = u_new/loss_ce
@@ -342,7 +342,7 @@ for t in range(0,num_training_steps):
     #if total_loss > 0.1:
     optimizer.step()
     #lr_scheduler.step()
-    print(f't={t} u={round(u_new.mean().item())}, y={round(G.mean().item()*18)}, Loss={total_loss.item():.3f}/{loss_ce.item():.3f} MF: {zero_dose_p.mean().item():.3f}/{low_dose_p.mean().item():.3f}/{high_dose_p.mean().item():.3f}')
+    print(f't={tt} u={round(u_new.mean().item())}, y={round(G.mean().item()*18)}, Loss={total_loss.item():.3f}/{loss_ce.item():.3f} MF: {zero_dose_p.mean().item():.3f}/{low_dose_p.mean().item():.3f}/{high_dose_p.mean().item():.3f}')
     
     y_calc.append(G.view(-1).tolist())
     u_calc.append(u_new.view(-1).tolist())
