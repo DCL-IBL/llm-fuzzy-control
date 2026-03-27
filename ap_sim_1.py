@@ -230,7 +230,7 @@ f.close()
 pdb.set_trace()
 '''
 
-num_training_steps = int(24*60*3/Ts)
+num_training_steps = int(24*60*10/Ts)
 lr_scheduler = get_scheduler(
     "linear",
     optimizer=optimizer,
@@ -323,13 +323,17 @@ for t in range(0,num_training_steps):
     #state = state + (k1+2*k2+2*k3+k4)*Ts/6.0
     state = state + k1*Ts
 
-    state1 = state + k1*Ts*100
+    state1 = state
+    for k in range(0,12):
+        (k1,G) = ap_model(tt,state1,u_new)
+        state1 = state1 + k1*Ts
 
     optimizer.zero_grad()
     Gout = state[:,0]/(0.16*BW)
     Gout1 = state1[:,0]/(0.16*BW)
     errp = torch.sqrt(torch.clamp(Gout1 - 105/18,min=0))
     errn = torch.clamp(105/18 - Gout1,min=0)
+    err1 = Gout1-Gout
 
     #if loss_ce > 1.0:
     #    total_loss = loss_ce
@@ -337,7 +341,7 @@ for t in range(0,num_training_steps):
     #if t < 2000:
     #    total_loss = loss_ce
     #else:
-    total_loss = errp.max()+(errn*errn).max()
+    total_loss = errp.max()+(errn*errn).max() #+0.1*u_per_kg.mean()
     total_loss.backward()
     #if total_loss > 0.1:
     optimizer.step()

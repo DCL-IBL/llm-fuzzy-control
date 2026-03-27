@@ -166,7 +166,7 @@ class Controller():
     
     Nstate = 8
     
-    def ap_model(self,id,uin):
+    def ap_model(self,state,uin):
         BW = torch.tensor([self.BW]).cuda()
         VG = 0.16*BW # Glucose distribution volume, L/kg*kg = L
         VI = 0.12*BW # Insulin distribution volume, L/kg*kg = L
@@ -189,14 +189,14 @@ class Controller():
         tmaxI = 55 # Time-to-maximum of absorption of subcutaneously injected short-acting insulin, min
         ke = 0.138 # Insulin elimination from plasma, 1/min
     
-        Q1 = self.state[id][:,0] # glucose masses in plasma, mmol
-        Q2 = self.state[id][:,1] # glucose masses in interstitial, mmol
-        x1 = self.state[id][:,2] # Insulin effect on glucose transport and distribution between plasma and interstitial, 1/min
-        x2 = self.state[id][:,3] # Insulin effect on glucose transport and distribution between plasma and interstitial, 1/min
-        x3 = self.state[id][:,4] # Insulin effect on glucose transport and distribution between plasma and interstitial, 1/min
-        S1 = self.state[id][:,5] # Insulin sensitivity in accessible, mU
-        S2 = self.state[id][:,6] # Insulin sensitivity in nonaccesible, mU
-        I = self.state[id][:,7] # Insulin in plasma, mU
+        Q1 = state[:,0] # glucose masses in plasma, mmol
+        Q2 = state[:,1] # glucose masses in interstitial, mmol
+        x1 = state[:,2] # Insulin effect on glucose transport and distribution between plasma and interstitial, 1/min
+        x2 = state[:,3] # Insulin effect on glucose transport and distribution between plasma and interstitial, 1/min
+        x3 = state[:,4] # Insulin effect on glucose transport and distribution between plasma and interstitial, 1/min
+        S1 = state[:,5] # Insulin sensitivity in accessible, mU
+        S2 = state[:,6] # Insulin sensitivity in nonaccesible, mU
+        I = state[:,7] # Insulin in plasma, mU
     
         G = Q1/VG # mmol/L
  
@@ -269,30 +269,35 @@ class Controller():
     
         yt_class = torch.hstack([
             hypo_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1),
-            target_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1),
-            hyper_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1)
+#            target_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1),
+#            hyper_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1)
         ]).argmax(dim=-1)
     
         out_class = (self.output_terms_tok[:,0].repeat(16,1).cuda()).gather(1,yt_class.unsqueeze(1)).squeeze(1)
 
         loss_ce = torch.nn.CrossEntropyLoss()(output_logits,out_class)
 
-        if loss_ce > 1.0:
-            u_new = u_new/loss_ce
+        #if loss_ce > 1.0:
+        #    u_new = u_new/loss_ce
         u_per_kg = u_new / self.BW
     
-        (k1,G) = self.ap_model(id,u_new)
+        (k1,G) = self.ap_model(self.state[id],u_new)
         self.state[id] = self.state[id] + k1*Controller.Ts
 
         #state1 = state + k1*Ts*100
+        state1 = self.state[id]
+        for k in range(0,12):
+            (k1,G) = self.ap_model(state1,u_new)
+            state1 = state1 + k1*Controller.Ts
 
         self.optimizer.zero_grad()
         Gout = self.state[id][:,0]/(0.16*self.BW)
-        #Gout1 = state1[:,0]/(0.16*BW)
-        errp = torch.sqrt(torch.clamp(Gout - 105/18,min=0))
-        errn = torch.clamp(105/18 - Gout,min=0)
+        Gout1 = state1[:,0]/(0.16*self.BW)
+        errp = torch.sqrt(torch.clamp(Gout1 - 105/18,min=0))
+        errn = torch.clamp(105/18 - Gout1,min=0)
+        err1 = Gout1 - 105/18
 
-        total_loss = errp.max()+(errn*errn).max()
+        total_loss = (err1*err1).max()+loss_ce #+10.0*(u_new*u_new).mean()
         total_loss.backward()
         self.optimizer.step()
 
