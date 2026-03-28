@@ -36,8 +36,10 @@ class Handler(BaseHTTPRequestHandler):
                 data1.ut[id] = torch.zeros((Controller.batch_size,Controller.sequence_len*data1.output_toks_per_term)).cuda()
                 data1.t[id] = 0.0
                 data1.u_prev[id] = torch.tensor(0.0)
-            data1.state[id][:,0] = float(query['G'][0])*(0.16*data1.BW)
-            u_per_kg = data1.get_control(time,id)
+            err =  float(query['G'][0])*(0.16*data1.BW) - data1.state[id][:,0]
+            #data1.state[id][:,7] = torch.clamp(data1.state[id][:,7] - 0.01*err,min=0.0)
+            #print(err)
+            u_per_kg = data1.get_control(time,id,torch.clamp(0.1*err,min=0.0))
             self._send_json({"u_new_kg": u_per_kg.item()})
 
     def do_POST(self):
@@ -106,7 +108,7 @@ class Controller():
     messages3 = ". Historical insulin dosages: "
 
     def __init__(self):
-        self.x_vals = torch.linspace(0,0.2,50).cuda().half()
+        self.x_vals = torch.linspace(0,1.5,50).cuda().half()
         self.mf_vals = torch.vstack([zero_dose(self.x_vals).unsqueeze(0),low_dose(self.x_vals).unsqueeze(0),high_dose(self.x_vals).unsqueeze(0)])
 
         self.llm = AutoModelForCausalLM.from_pretrained(Controller.llm_name,device_map="auto")
@@ -154,7 +156,7 @@ class Controller():
         )
         self.llm = get_peft_model(self.llm, lora_config)
         self.llm.print_trainable_parameters()
-        self.optimizer = torch.optim.AdamW(self.llm.parameters(), lr=1e-5) # 1e-5
+        self.optimizer = torch.optim.AdamW(self.llm.parameters(), lr=1e-4) # 1e-5
         self.llm.train()
 
         self.BW=100
@@ -166,7 +168,7 @@ class Controller():
     
     Nstate = 8
     
-    def ap_model(self,state,uin):
+    def ap_model(self,state,uin,UG):
         BW = torch.tensor([self.BW]).cuda()
         VG = 0.16*BW # Glucose distribution volume, L/kg*kg = L
         VI = 0.12*BW # Insulin distribution volume, L/kg*kg = L
@@ -209,7 +211,7 @@ class Controller():
         if sel.sum().item() > 0:
             FR[sel] = 0.003*(G[sel]-9)*VG[sel]
     
-        UG = 0
+        #UG = 0
     
         Q1dot = EGP0*(1.0-x3) + UG - FR - (x1+F01c/(VG*G))*Q1 + k12*Q2
         Q2dot = x1*Q1 - (k12+x2)*Q2
@@ -238,7 +240,7 @@ class Controller():
 
     Ts = 5
 
-    def get_control(self,time,id):
+    def get_control(self,time,id,UG):
         #if time - self.t[id] < Controller.Ts:
         #    return self.u_prev[id]
         self.input_terms_vec0 = self.input_terms_vec0.detach()
@@ -269,8 +271,8 @@ class Controller():
     
         yt_class = torch.hstack([
             hypo_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1),
-#            target_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1),
-#            hyper_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1)
+            target_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1),
+            hyper_glucose(self.yt[id]).mean(dim=-1).unsqueeze(1)
         ]).argmax(dim=-1)
     
         out_class = (self.output_terms_tok[:,0].repeat(16,1).cuda()).gather(1,yt_class.unsqueeze(1)).squeeze(1)
@@ -281,13 +283,13 @@ class Controller():
         #    u_new = u_new/loss_ce
         u_per_kg = u_new / self.BW
     
-        (k1,G) = self.ap_model(self.state[id],u_new)
+        (k1,G) = self.ap_model(self.state[id],u_new,UG)
         self.state[id] = self.state[id] + k1*Controller.Ts
 
         #state1 = state + k1*Ts*100
         state1 = self.state[id]
-        for k in range(0,12):
-            (k1,G) = self.ap_model(state1,u_new)
+        for k in range(0,36):
+            (k1,G) = self.ap_model(state1,u_new,UG)
             state1 = state1 + k1*Controller.Ts
 
         self.optimizer.zero_grad()
@@ -297,14 +299,14 @@ class Controller():
         errn = torch.clamp(105/18 - Gout1,min=0)
         err1 = Gout1 - 105/18
 
-        total_loss = (err1*err1).max()+loss_ce #+10.0*(u_new*u_new).mean()
+        total_loss = (err1*err1).max() #+10.0*(u_new*u_new).mean()
         total_loss.backward()
         self.optimizer.step()
 
         self.yt[id] = torch.hstack([self.yt[id][:,self.input_toks_per_term:],Gout.unsqueeze(1).repeat(1,self.input_toks_per_term)])
         self.ut[id] = torch.hstack([self.ut[id][:,self.output_toks_per_term:],u_per_kg.unsqueeze(1)])
 
-        print(f'id={id} u={round(u_new.mean().item())}, y={round(G.mean().item()*18)}, Loss={total_loss.item():.3f}/{loss_ce.item():.3f} MF: {zero_dose_p.mean().item():.3f}/{low_dose_p.mean().item():.3f}/{high_dose_p.mean().item():.3f}')
+        print(f'id={id} u={round(u_new.mean().item())}, y={round(Gout.mean().item()*18)}/{round(Gout1.mean().item()*18)}, Loss={total_loss.item():.3f}/{loss_ce.item():.3f} MF: {zero_dose_p.mean().item():.3f}/{low_dose_p.mean().item():.3f}/{high_dose_p.mean().item():.3f}')
         
         self.yt[id] = self.yt[id].detach()
         self.ut[id] = self.ut[id].detach()

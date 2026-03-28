@@ -324,7 +324,7 @@ for t in range(0,num_training_steps):
     state = state + k1*Ts
 
     state1 = state
-    for k in range(0,12):
+    for k in range(0,36):
         (k1,G) = ap_model(tt,state1,u_new)
         state1 = state1 + k1*Ts
 
@@ -333,7 +333,7 @@ for t in range(0,num_training_steps):
     Gout1 = state1[:,0]/(0.16*BW)
     errp = torch.sqrt(torch.clamp(Gout1 - 105/18,min=0))
     errn = torch.clamp(105/18 - Gout1,min=0)
-    err1 = Gout1-Gout
+    err1 = Gout1 - 105/18
 
     #if loss_ce > 1.0:
     #    total_loss = loss_ce
@@ -341,12 +341,12 @@ for t in range(0,num_training_steps):
     #if t < 2000:
     #    total_loss = loss_ce
     #else:
-    total_loss = errp.max()+(errn*errn).max() #+0.1*u_per_kg.mean()
+    total_loss = (err1*err1).max() #+0.1*u_per_kg.mean()
     total_loss.backward()
     #if total_loss > 0.1:
     optimizer.step()
     #lr_scheduler.step()
-    print(f't={tt} u={round(u_new.mean().item())}, y={round(G.mean().item()*18)}, Loss={total_loss.item():.3f}/{loss_ce.item():.3f} MF: {zero_dose_p.mean().item():.3f}/{low_dose_p.mean().item():.3f}/{high_dose_p.mean().item():.3f}')
+    print(f't={tt} u={round(u_new.mean().item())}, y={round(Gout.mean().item()*18)}/{round(Gout1.mean().item()*18)}, Loss={total_loss.item():.3f}/{loss_ce.item():.3f} MF: {zero_dose_p.mean().item():.3f}/{low_dose_p.mean().item():.3f}/{high_dose_p.mean().item():.3f}')
     
     y_calc.append(G.view(-1).tolist())
     u_calc.append(u_new.view(-1).tolist())
