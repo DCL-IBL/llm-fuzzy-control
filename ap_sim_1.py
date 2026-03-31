@@ -118,6 +118,10 @@ llm.train()
 y_calc = []
 u_calc = []
 L_calc = []
+loss_ce_calc = []
+zero_dose_p_calc = []
+low_dose_p_calc = []
+high_dose_p_calc = []
 
 #BW = torch.round(90.0+10*torch.randn((batch_size,))).cuda()
 BW = torch.tensor([70., 75., 80., 85., 90., 100., 105., 110., 115., 120., 125., 130., 135., 140., 145., 150.]).cuda()
@@ -351,12 +355,24 @@ for t in range(0,num_training_steps):
     y_calc.append(G.view(-1).tolist())
     u_calc.append(u_new.view(-1).tolist())
     L_calc.append(total_loss.item())
+    loss_ce_calc.append(loss_ce.item())
+    zero_dose_p_calc.append(zero_dose_p.mean().item())
+    low_dose_p_calc.append(low_dose_p.mean().item())
+    high_dose_p_calc.append(high_dose_p.mean().item())
 
     yt = torch.hstack([yt[:,input_toks_per_term:],Gout.unsqueeze(1).repeat(1,input_toks_per_term)])
     ut = torch.hstack([ut[:,output_toks_per_term:],u_per_kg.unsqueeze(1)])
 
-dat = {"u":u_calc,"y":y_calc,"loss":L_calc}
-f = open("sim_result_1.json","w")
+dat = {
+    "u":u_calc,
+    "y":y_calc,
+    "loss":L_calc,
+    "loss_ce":loss_ce_calc,
+    "zero_dose_p":zero_dose_p_calc,
+    "low_dose_p":low_dose_p_calc,
+    "high_dose_p":high_dose_p_calc
+    }
+f = open("training_10_day.json","w")
 f.write(json.dumps(dat))
 f.close()
 pdb.set_trace()
