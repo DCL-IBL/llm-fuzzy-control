@@ -86,7 +86,7 @@ def low_dose(x):
     return triangular(x, 0.0, 0.01, 0.1) # mU/kg
 
 def high_dose(x):
-    return ramp_right(x, 0.05, 0.5) # mU/kg
+    return ramp_right(x, 0.05, 0.4) # mU/kg
 
 class Controller():
     llm_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
@@ -105,7 +105,7 @@ class Controller():
     messages3 = ". Historical insulin dosages: "
 
     def __init__(self):
-        self.x_vals = torch.linspace(0,0.5,50).cuda().half()
+        self.x_vals = torch.linspace(0,0.4,50).cuda().half()
         self.mf_vals = torch.vstack([zero_dose(self.x_vals).unsqueeze(0),low_dose(self.x_vals).unsqueeze(0),high_dose(self.x_vals).unsqueeze(0)])
 
         self.llm = AutoModelForCausalLM.from_pretrained(Controller.llm_name,device_map="auto")
